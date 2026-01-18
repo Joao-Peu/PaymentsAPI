@@ -1,6 +1,5 @@
 using MassTransit;
 using PaymentsAPI.Application.Consumers;
-using PaymentsAPI.Core.Events;
 using PaymentsAPI.Infrastructure;
 using PaymentsAPI.Infrastructure.Repositories;
 using PaymentsAPI.Infrastructure.Data;
@@ -49,10 +48,7 @@ builder.Services.AddMassTransit(x =>
             h.Password(builder.Configuration["RabbitMQ:Password"] ?? "guest");
         });
 
-        cfg.ReceiveEndpoint("order-placed-queue", e =>
-        {
-            e.ConfigureConsumer<OrderPlacedConsumer>(context);
-        });
+        cfg.ConfigureEndpoints(context);
     });
 });
 
