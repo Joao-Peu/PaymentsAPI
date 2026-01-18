@@ -33,6 +33,16 @@ spec:
                 secretKeyRef:
                   name: rabbitmq-secret
                   key: password
+            - name: RABBITMQ__PORT
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: port
+            - name: RABBITMQ__VHOST
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: vhost
 ---
 apiVersion: v1
 kind: Service
