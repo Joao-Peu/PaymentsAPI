@@ -5,6 +5,7 @@ using PaymentsAPI.Infrastructure.Repositories;
 using PaymentsAPI.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
+using UsersAPI.Infrastructure.RabbitMQ;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,9 +20,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // EF Core - SQL Server
-var connectionString = builder.Configuration.GetConnectionString("PaymentsDb")
-    ?? builder.Configuration["ConnectionStrings:PaymentsDb"]
-    ?? "Server=localhost;Database=PaymentsDb;User Id=sa;Password=Your_strong_password_123;TrustServerCertificate=True;";
+var connectionString = builder.Configuration.GetConnectionString("PaymentsDb");
 
 builder.Services.AddDbContext<PaymentsDbContext>(options =>
     options.UseSqlServer(connectionString, sql =>
@@ -31,21 +30,19 @@ builder.Services.AddDbContext<PaymentsDbContext>(options =>
         sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(5), errorNumbersToAdd: null);
     }));
 
-// DI - use EF repository
-builder.Services.AddScoped<IPaymentRepository, EfPaymentRepository>();
+builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 
-// MassTransit
+var rabbitMQSettings = builder.Configuration.GetSection("RabbitMQ").Get<RabbitMQSettings>()!;
 builder.Services.AddMassTransit(x =>
 {
     x.AddConsumer<OrderPlacedConsumer>();
 
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(builder.Configuration["RabbitMQ:Host"] ?? "localhost", h =>
+        cfg.Host(rabbitMQSettings.HostName, h =>
         {
-            // default guest
-            h.Username(builder.Configuration["RabbitMQ:Username"] ?? "guest");
-            h.Password(builder.Configuration["RabbitMQ:Password"] ?? "guest");
+            h.Username(rabbitMQSettings.UserName);
+            h.Password(rabbitMQSettings.Password);
         });
 
         cfg.ConfigureEndpoints(context);
