@@ -5,6 +5,7 @@ using PaymentsAPI.Infrastructure.Repositories;
 using PaymentsAPI.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
+using UsersAPI.Infrastructure.RabbitMQ;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,9 +19,6 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// =======================
-// SQL SERVER
-// =======================
 var connectionString =
     builder.Configuration.GetConnectionString("PaymentsDb")
     ?? builder.Configuration["ConnectionStrings__PaymentsDb"];
@@ -37,31 +35,20 @@ builder.Services.AddDbContext<PaymentsDbContext>(options =>
 
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 
-// =======================
-// RABBITMQ
-// =======================
-// Usar variáveis sem __, correspondendo ao ConfigMap/Secret
-var rabbitHost = builder.Configuration["RABBITMQ_HOST"];
-var rabbitUser = builder.Configuration["RABBITMQ_USERNAME"];
-var rabbitPass = builder.Configuration["RABBITMQ_PASSWORD"];
-
-if (string.IsNullOrWhiteSpace(rabbitHost))
-    throw new InvalidOperationException("RabbitMQ host not configured");
-
 builder.Services.AddMassTransit(x =>
 {
+    var rabbitMQSettings = builder.Configuration.GetSection("RabbitMQ").Get<RabbitMQSettings>()!;
     x.AddConsumer<OrderPlacedConsumer>();
 
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(rabbitHost, "/", h =>
+        cfg.Host(rabbitMQSettings.HostName, "/", h =>
         {
-            h.Username(rabbitUser);
-            h.Password(rabbitPass);
+            h.Username(rabbitMQSettings.UserName);
+            h.Password(rabbitMQSettings.Password);
         });
 
-        // Configura o endpoint da fila PaymentsAPI
-        cfg.ReceiveEndpoint(builder.Configuration["RABBITMQ_QUEUE_PAYMENT_CREATED"], e =>
+        cfg.ReceiveEndpoint("payments-order-placed", e =>
         {
             e.ConfigureConsumer<OrderPlacedConsumer>(context);
         });
