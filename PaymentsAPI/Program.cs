@@ -5,26 +5,18 @@ using PaymentsAPI.Infrastructure.Repositories;
 using PaymentsAPI.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
+using UsersAPI.Infrastructure.RabbitMQ;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// =======================
-// CONFIGURAÇÃO
-// =======================
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-    .AddEnvironmentVariables(); // ainda mantém, mas vamos pegar direto do ambiente
+    .AddEnvironmentVariables(); 
 
-// =======================
-// CONTROLLERS & SWAGGER
-// =======================
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// =======================
-// SQL SERVER
-// =======================
 var connectionString =
     builder.Configuration.GetConnectionString("PaymentsDb")
     ?? Environment.GetEnvironmentVariable("ConnectionStrings__PaymentsDb");
@@ -41,56 +33,34 @@ builder.Services.AddDbContext<PaymentsDbContext>(options =>
 
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 
-// =======================
-// RABBITMQ / MASSTRANSIT
-// =======================
-// Pega direto do ambiente, ignorando appsettings
-var rabbitHost = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "rabbitmq";
-var rabbitUser = Environment.GetEnvironmentVariable("RABBITMQ_USERNAME") ?? "fiap";
-var rabbitPass = Environment.GetEnvironmentVariable("RABBITMQ_PASSWORD") ?? "fiap123";
-var rabbitVHost = Environment.GetEnvironmentVariable("RABBITMQ_VHOST") ?? "/";
-var rabbitQueue = Environment.GetEnvironmentVariable("RABBITMQ_QUEUE_PAYMENT_CREATED") ?? "payment.created";
-
-Console.WriteLine($"Configuring RabbitMQ: Host={rabbitHost}, User={rabbitUser}, VHost={rabbitVHost}, Queue={rabbitQueue}");
-
 builder.Services.AddMassTransit(x =>
 {
+    var rabbitMQSettings = builder.Configuration.GetSection("RabbitMQ").Get<RabbitMQSettings>()!;
     x.AddConsumer<OrderPlacedConsumer>();
 
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(rabbitHost, rabbitVHost, h =>
+        cfg.Host(rabbitMQSettings.HostName, "/", h =>
         {
-            h.Username(rabbitUser);
-            h.Password(rabbitPass);
+            h.Username(rabbitMQSettings.UserName);
+            h.Password(rabbitMQSettings.Password);
         });
 
-        cfg.ReceiveEndpoint(rabbitQueue, e =>
+        cfg.ReceiveEndpoint("payments-order-placed", e =>
         {
-            e.Durable = true;   // fila durável, aparece no Management UI
-            e.AutoDelete = false; // não deleta a fila
             e.ConfigureConsumer<OrderPlacedConsumer>(context);
         });
     });
 });
 
-// =======================
-// BUILD APP
-// =======================
 var app = builder.Build();
 
-// =======================
-// MIGRATIONS
-// =======================
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<PaymentsDbContext>();
     db.Database.Migrate();
 }
 
-// =======================
-// MIDDLEWARE
-// =======================
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
