@@ -14,12 +14,40 @@ spec:
     spec:
       containers:
         - name: paymentsapi
-          image: paymentsapi:local
-          imagePullPolicy: Never
+          image: paymentsapi:fixed2
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
-          envFrom:
-            - configMapRef:
-                name: paymentsapi-config
-            - secretRef:
-                name: paymentsapi-secret
+          env:
+            # Variáveis do ConfigMap
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: paymentsapi-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_QUEUE_PAYMENT_CREATED
+              valueFrom:
+                configMapKeyRef:
+                  name: paymentsapi-config
+                  key: RABBITMQ_QUEUE_PAYMENT_CREATED
+            - name: RABBITMQ_VHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: paymentsapi-config
+                  key: RABBITMQ_VHOST
+            # Variáveis do Secret
+            - name: RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: paymentsapi-secret
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paymentsapi-secret
+                  key: RABBITMQ_PASSWORD
+            - name: ConnectionStrings__PaymentsDb
+              valueFrom:
+                secretKeyRef:
+                  name: paymentsapi-secret
+                  key: ConnectionStrings__Default
