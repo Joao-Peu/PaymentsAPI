@@ -1,0 +1,11 @@
+﻿apiVersion: v1
+kind: Service
+metadata:
+  name: paymentsapi
+spec:
+  selector:
+    app: paymentsapi
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP

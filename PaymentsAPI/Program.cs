@@ -9,56 +9,58 @@ using UsersAPI.Infrastructure.RabbitMQ;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuration
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-    .AddEnvironmentVariables();
+    .AddEnvironmentVariables(); 
 
-// Services
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// EF Core - SQL Server
-var connectionString = builder.Configuration.GetConnectionString("PaymentsDb");
+var connectionString =
+    builder.Configuration.GetConnectionString("PaymentsDb")
+    ?? Environment.GetEnvironmentVariable("ConnectionStrings__PaymentsDb");
+
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException("Connection string PaymentsDb not configured");
 
 builder.Services.AddDbContext<PaymentsDbContext>(options =>
     options.UseSqlServer(connectionString, sql =>
     {
         sql.MigrationsAssembly(Assembly.GetExecutingAssembly().GetName().Name);
-        // Enable connection resiliency for transient failures
-        sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(5), errorNumbersToAdd: null);
+        sql.EnableRetryOnFailure();
     }));
 
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 
-var rabbitMQSettings = builder.Configuration.GetSection("RabbitMQ").Get<RabbitMQSettings>()!;
 builder.Services.AddMassTransit(x =>
 {
+    var rabbitMQSettings = builder.Configuration.GetSection("RabbitMQ").Get<RabbitMQSettings>()!;
     x.AddConsumer<OrderPlacedConsumer>();
 
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(rabbitMQSettings.HostName, h =>
+        cfg.Host(rabbitMQSettings.HostName, "/", h =>
         {
             h.Username(rabbitMQSettings.UserName);
             h.Password(rabbitMQSettings.Password);
         });
 
-        cfg.ConfigureEndpoints(context);
+        cfg.ReceiveEndpoint("payments-order-placed", e =>
+        {
+            e.ConfigureConsumer<OrderPlacedConsumer>(context);
+        });
     });
 });
 
 var app = builder.Build();
 
-// Apply EF Core migrations on startup
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<PaymentsDbContext>();
     db.Database.Migrate();
 }
 
-// Configure middleware
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -67,5 +69,4 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthorization();
 app.MapControllers();
-
 app.Run();

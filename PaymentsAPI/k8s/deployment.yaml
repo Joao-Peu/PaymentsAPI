@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: paymentsapi
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: paymentsapi
@@ -14,45 +14,40 @@ spec:
     spec:
       containers:
         - name: paymentsapi
-          image: paymentsapi:latest
+          image: paymentsapi:fixed2
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
           env:
-            - name: RABBITMQ__HOST
+            # Variáveis do ConfigMap
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: paymentsapi-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_QUEUE_PAYMENT_CREATED
+              valueFrom:
+                configMapKeyRef:
+                  name: paymentsapi-config
+                  key: RABBITMQ_QUEUE_PAYMENT_CREATED
+            - name: RABBITMQ_VHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: paymentsapi-config
+                  key: RABBITMQ_VHOST
+            # Variáveis do Secret
+            - name: RABBITMQ_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: rabbitmq-secret
-                  key: host
-            - name: RABBITMQ__USERNAME
+                  name: paymentsapi-secret
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: rabbitmq-secret
-                  key: username
-            - name: RABBITMQ__PASSWORD
+                  name: paymentsapi-secret
+                  key: RABBITMQ_PASSWORD
+            - name: ConnectionStrings__PaymentsDb
               valueFrom:
                 secretKeyRef:
-                  name: rabbitmq-secret
-                  key: password
-            - name: RABBITMQ__PORT
-              valueFrom:
-                secretKeyRef:
-                  name: rabbitmq-secret
-                  key: port
-            - name: RABBITMQ__VHOST
-              valueFrom:
-                secretKeyRef:
-                  name: rabbitmq-secret
-                  key: vhost
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: paymentsapi-service
-spec:
-  selector:
-    app: paymentsapi
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 80
-  type: ClusterIP
+                  name: paymentsapi-secret
+                  key: ConnectionStrings__Default
