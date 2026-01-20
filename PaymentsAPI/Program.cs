@@ -9,19 +9,17 @@ using UsersAPI.Infrastructure.RabbitMQ;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuration
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-    .AddEnvironmentVariables();
+    .AddEnvironmentVariables(); 
 
-// Controllers & Swagger
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var connectionString =
     builder.Configuration.GetConnectionString("PaymentsDb")
-    ?? builder.Configuration["ConnectionStrings__PaymentsDb"];
+    ?? Environment.GetEnvironmentVariable("ConnectionStrings__PaymentsDb");
 
 if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("Connection string PaymentsDb not configured");
@@ -57,16 +55,12 @@ builder.Services.AddMassTransit(x =>
 
 var app = builder.Build();
 
-// =======================
-// MIGRATIONS
-// =======================
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<PaymentsDbContext>();
     db.Database.Migrate();
 }
 
-// Middleware
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
