@@ -2,6 +2,7 @@
 kind: Service
 metadata:
   name: sql-payments
+  namespace: microservices
 spec:
   selector:
     app: sql-payments

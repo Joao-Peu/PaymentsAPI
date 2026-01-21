@@ -1,9 +1,0 @@
-﻿apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: paymentsapi-config
-data:
-  RABBITMQ_HOST: rabbitmq
-  RABBITMQ_PORT: "5672"
-  RABBITMQ_VHOST: "/"
-  RABBITMQ_QUEUE_PAYMENT_CREATED: payment.created
