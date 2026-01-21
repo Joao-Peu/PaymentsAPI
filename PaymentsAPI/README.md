@@ -25,7 +25,7 @@ Microserviço responsável pelo processamento de pagamentos de pedidos.
 
 ## Fluxo principal
 1. O serviço inicia, aplica migrations (`db.Database.Migrate()`) e se conecta ao RabbitMQ.
-2. `OrderPlacedConsumer` é registrado na fila configurada (padrão: `payment.created`).
+2. `OrderPlacedConsumer` é registrado na fila configurada `payments-order-placed`.
 3. Ao receber um evento `OrderPlacedEvent`:
    - Cria um `Payment` com ID único.
    - Simula processamento com 80% de chance de aprovação.
@@ -35,12 +35,11 @@ Microserviço responsável pelo processamento de pagamentos de pedidos.
 
 ## Integração com RabbitMQ (MassTransit)
 - Configuração via variáveis de ambiente (recomendado) ou appsettings.json.
-- **Variáveis de ambiente:**
-  - `RABBITMQ_HOST`: Host do RabbitMQ (padrão: `rabbitmq`).
-  - `RABBITMQ_USERNAME`: Usuário do RabbitMQ (padrão: `fiap`).
-  - `RABBITMQ_PASSWORD`: Senha do RabbitMQ (padrão: `fiap123`).
-  - `RABBITMQ_VHOST`: Virtual host do RabbitMQ (padrão: `/`).
-  - `RABBITMQ_QUEUE_PAYMENT_CREATED`: Nome da fila para consumir (padrão: `payment.created`).
+- Variáveis de ambiente:
+  - `RabbitMQ__HostName`: Host do RabbitMQ (padrão: `rabbitmq-service`).
+  - `RabbitMQ__UserName`: Usuário do RabbitMQ (padrão: `fiap`).
+  - `RabbitMQ__Password`: Senha do RabbitMQ (padrão: `fiap123`).
+  - Fila consumida: `payments-order-placed`.
 
 ### Estrutura dos Eventos
 
@@ -58,29 +57,29 @@ public record PaymentProcessedEvent(Guid OrderId, Guid UserId, Guid GameId, deci
 
 #### Opção 1: Via RabbitMQ Management UI
 1. Acesse `http://localhost:15672` (user: `fiap`, password: `fiap123`)
-2. Vá para **Queues** ? `payment.created` ? **Publish message**
+2. Vá para "Queues" ? "payments-order-placed" ? "Publish message"
 3. Use o payload com envelope MassTransit:
 
 ```json
 {
   "messageId": "00000000-0000-0000-0000-000000000001",
   "conversationId": "00000000-0000-0000-0000-000000000002",
-  "sourceAddress": "rabbitmq://rabbitmq/test",
-  "destinationAddress": "rabbitmq://rabbitmq/payment.created",
+  "sourceAddress": "rabbitmq://rabbitmq-service/test",
+  "destinationAddress": "rabbitmq://rabbitmq-service/payments-order-placed",
   "messageType": [
     "urn:message:Shared.Events:OrderPlacedEvent"
   ],
   "message": {
     "orderId": "a3d5c6e7-8f9a-4b1c-9d2e-3f4a5b6c7d8e",
     "userId": "b4e6d7f8-9a0b-5c2d-0e3f-4a5b6c7d8e9f",
-    "gameId": "c5f7e8g9-0b1c-6d3e-1f4a-5b6c7d8e9f0a",
+    "gameId": "c5f7e8f9-0b1c-6d3e-1f4a-5b6c7d8e9f0a",
     "price": 59.99
   },
   "sentTime": "2025-01-19T10:30:00Z"
 }
 ```
 
-**Headers necessários:**
+Headers necessários:
 - `Content-Type`: `application/json`
 
 #### Opção 2: Payloads de Teste Rápido
@@ -141,11 +140,9 @@ CREATE TABLE [dbo].[Payments] (
 ### Variáveis de Ambiente (Recomendado para Kubernetes)
 ```bash
 # RabbitMQ
-RABBITMQ_HOST=rabbitmq
-RABBITMQ_USERNAME=fiap
-RABBITMQ_PASSWORD=fiap123
-RABBITMQ_VHOST=/
-RABBITMQ_QUEUE_PAYMENT_CREATED=payment.created
+RabbitMQ__HostName=rabbitmq-service
+RabbitMQ__UserName=fiap
+RabbitMQ__Password=fiap123
 
 # SQL Server
 ConnectionStrings__PaymentsDb="Server=sql-payments,1433;Database=PaymentsDb;User Id=sa;Password=StrongPassword!123;TrustServerCertificate=True;"
@@ -158,8 +155,8 @@ ConnectionStrings__PaymentsDb="Server=sql-payments,1433;Database=PaymentsDb;User
     "PaymentsDb": "Server=localhost;Database=PaymentsDb;User Id=sa;Password=Your_strong_password_123;TrustServerCertificate=True;"
   },
   "RabbitMQ": {
-    "Host": "localhost",
-    "Username": "guest",
+    "HostName": "localhost",
+    "UserName": "guest",
     "Password": "guest"
   }
 }
@@ -188,17 +185,17 @@ ConnectionStrings__PaymentsDb="Server=sql-payments,1433;Database=PaymentsDb;User
 
 5. **Verificar logs:**
    ```
-   Configuring RabbitMQ: Host=localhost, User=guest, VHost=/, Queue=payment.created
-   Bus started: rabbitmq://localhost/
+   Configuring RabbitMQ: Host=rabbitmq-service, User=fiap
+   Bus started: rabbitmq://rabbitmq-service/
    Now listening on: http://[::]:8080
    Application started.
    ```
 
 ## Teste ponta a ponta
 1. Inicie a API.
-2. Publique o evento `OrderPlacedEvent` na fila `payment.created` (usar payloads de teste acima).
+2. Publique o evento `OrderPlacedEvent` na fila `payments-order-placed` (usar payloads de teste acima).
 3. Verifique:
-   - **Logs da aplicação**: `dotnet run` ou `kubectl logs -l app=paymentsapi --follow`
+   - **Logs da aplicação**: `dotnet run` ou `kubectl logs -l app=payments-api --follow`
    - **Banco de dados**: `SELECT * FROM Payments ORDER BY CreatedAt DESC;`
    - **RabbitMQ Management UI**: Verifique se a mensagem foi consumida e o evento `PaymentProcessedEvent` foi publicado.
 
@@ -208,108 +205,112 @@ ConnectionStrings__PaymentsDb="Server=sql-payments,1433;Database=PaymentsDb;User
 
 ## Docker
 - Build: `docker build -t paymentsapi:latest -f PaymentsAPI/Dockerfile .`
-- Run: `docker run -p 8080:80 --env RabbitMQ__Host=<host> --env RabbitMQ__Username=<user> --env RabbitMQ__Password=<pass> --env ConnectionStrings__PaymentsDb="<conn>" paymentsapi:latest`
+- Run: `docker run -p 8080:80 --env RabbitMQ__HostName=<host> --env RabbitMQ__UserName=<user> --env RabbitMQ__Password=<pass> --env ConnectionStrings__PaymentsDb="<conn>" paymentsapi:latest`
 
 ## Kubernetes
 
-### Estrutura dos Manifestos
-```
-k8s/
-??? configmap.yml          # Configurações do RabbitMQ
-??? secret.yaml            # Credenciais sensíveis
-??? deployment.yaml        # Deployment da API
-??? service.yaml           # Service da API (se existir)
-??? rabbitmq-payments-deployment.yml  # RabbitMQ
-```
+### Manifestos (k8s/)
+
+Os manifestos atuais (atualizados) na pasta `k8s/` incluem:
+
+- `namespace.yaml`: namespace padrão `microservices`.
+- `payments-configmap.yaml`: configurações de ASP.NET Core para a API (`ASPNETCORE_ENVIRONMENT`, `ASPNETCORE_URLS`).
+- `payments-secret.yaml`: Secret com `ConnectionStrings__Default` (use para injetar em `ConnectionStrings__PaymentsDb`).
+- `payments-deployment.yaml`: Deployment da API com 2 réplicas, probes e recursos.
+- `payments-service.yml`: Service ClusterIP para expor a API na porta 80.
+- `configmap-rabbitmq.yaml`: ConfigMap com hostname/ports do RabbitMQ (`rabbitmq-service`).
+- `deployment-rabbitmq.yaml`: Deployment + PVC + Service do RabbitMQ (`rabbitmq-service`).
+- `secrets-rabbitmq.yaml`: Secret com credenciais do RabbitMQ (`rabbitmq-credentials`).
+- `jwt-secrets.yaml`: Secret com chave JWT (`jwt-secret`).
+- `payments-sql-deployment.yml`: PVC + Deployment do SQL Server (`sql-payments`).
+- `payments-sql-service.yml`: Service ClusterIP do SQL Server (`sql-payments`).
+- `payments-sql-secret.yml`: Secret com senha do SQL (`sqlserver-credentials`).
 
 ### Deploy Completo
 
-1. **Aplicar ConfigMap:**
+1. Criar Namespace (uma vez):
    ```bash
-   kubectl apply -f k8s/configmap.yml
+   kubectl apply -f k8s/namespace.yaml
    ```
 
-2. **Aplicar Secrets:**
+2. Aplicar Secrets e ConfigMaps:
    ```bash
-   kubectl apply -f k8s/secret.yaml
+   kubectl apply -f k8s/payments-secret.yaml
+   kubectl apply -f k8s/secrets-rabbitmq.yaml
+   kubectl apply -f k8s/jwt-secrets.yaml
+   kubectl apply -f k8s/configmap-rabbitmq.yaml
+   kubectl apply -f k8s/payments-configmap.yaml
    ```
 
-3. **Deploy RabbitMQ:**
+3. Deploy dos serviços de infraestrutura:
    ```bash
-   kubectl apply -f k8s/rabbitmq-payments-deployment.yml
+   kubectl apply -f k8s/deployment-rabbitmq.yaml
+   kubectl apply -f k8s/payments-sql-deployment.yml
+   kubectl apply -f k8s/payments-sql-service.yml
+   kubectl apply -f k8s/payments-sql-secret.yml
    ```
 
-4. **Deploy PaymentsAPI:**
+4. Deploy da PaymentsAPI:
    ```bash
-   kubectl apply -f k8s/deployment.yaml
+   kubectl apply -f k8s/payments-deployment.yaml
+   kubectl apply -f k8s/payments-service.yml
    ```
 
-5. **Verificar Pods:**
+5. Verificar Pods/Services no namespace `microservices`:
    ```bash
-   kubectl get pods
-   kubectl logs -l app=paymentsapi --follow
+   kubectl get pods -n microservices
+   kubectl get svc -n microservices
+   kubectl logs -n microservices -l app=payments-api --follow
    ```
 
-6. **Verificar Conexão:**
-   ```bash
-   # Deve aparecer:
-   # Configuring RabbitMQ: Host=rabbitmq, User=fiap, VHost=/, Queue=payment.created
-   # Bus started: rabbitmq://rabbitmq/
+6. Verificar Conexão:
+   ```
+   # Deve aparecer nos logs:
+   # Configurando RabbitMQ: Host=rabbitmq-service, User=fiap
+   # Bus started: rabbitmq://rabbitmq-service/
    ```
 
 ### Port-Forward para Testes
 ```bash
-# RabbitMQ Management UI
-kubectl port-forward svc/rabbitmq 15672:15672
-
-# PaymentsAPI (se houver service)
-kubectl port-forward svc/paymentsapi 8080:80
+kubectl -n microservices port-forward svc/payments-api 8080:80
 ```
+
+### Observações Importantes
+- O `payments-deployment.yaml` injeta variáveis de ambiente a partir de:
+  - ConfigMap `payments-api-config` (ASPNETCORE_*).
+  - Secret `payments-api-secret` (`ConnectionStrings__Default`).
+  - Secret `rabbitmq-credentials` (username/password).
+  - ConfigMap `rabbitmq-config` (hostname).
+- Ajuste o mapeamento no container para usar `ConnectionStrings__PaymentsDb` se necessário.
+- RabbitMQ Service é `rabbitmq-service` (ClusterIP), use esse hostname.
 
 ### Troubleshooting Kubernetes
 
 **Problema: Pod mostrando "Connection Failed: rabbitmq://localhost/"**
 
-**Solução:** 
-- Verifique se as variáveis de ambiente estão configuradas corretamente:
-  ```bash
-  kubectl describe pod -l app=paymentsapi | grep -A 10 "Environment:"
-  ```
-- Reconstrua a imagem Docker sem cache:
-  ```bash
-  docker build --no-cache -t paymentsapi:latest .
-  ```
-- Force o Kubernetes a usar a nova imagem:
-  ```bash
-  kubectl delete deployment paymentsapi
-  kubectl apply -f k8s/deployment.yaml
-  ```
+**Solução:**
+- Verifique se as variáveis de ambiente foram injetadas via Secret/ConfigMap.
+- Confirme que o serviço do RabbitMQ está acessível pelo hostname `rabbitmq-service`.
+- Reconstrua a imagem Docker sem cache e redeploy.
 
 **Problema: "ErrImageNeverPull"**
 
 **Solução:**
-- Mude `imagePullPolicy` para `IfNotPresent` no deployment.yaml
-- Ou use uma tag diferente e reconstrua a imagem
-
-**Problema: MassTransit Configuration Exception**
-
-**Solução:**
-- Certifique-se de que `e.Durable` e `e.AutoDelete` são configurados **antes** de `e.ConfigureConsumer` no Program.cs
+- Mude `imagePullPolicy` para `IfNotPresent` no `payments-deployment.yaml`.
+- Use uma tag diferente e reconstrua a imagem.
 
 ## Tecnologias
-- **.NET 8**, C# 12
-- **MassTransit** 8.x (RabbitMQ Transport)
-- **RabbitMQ** 3.x (com Management Plugin)
-- **Entity Framework Core 8** (SQL Server Provider)
-- **Swagger/OpenAPI**
-- **Docker**, **Kubernetes**
+- .NET 8, C# 12
+- MassTransit 8.x (RabbitMQ Transport)
+- RabbitMQ 3.x (com Management Plugin)
+- Entity Framework Core 8 (SQL Server Provider)
+- Swagger/OpenAPI
+- Docker, Kubernetes
 
 ## Comportamento do Processamento
 O `OrderPlacedConsumer` implementa uma lógica de aprovação probabilística:
-- **80% de chance** ? `PaymentStatus.Approved`
-- **20% de chance** ? `PaymentStatus.Rejected`
-
-Teste múltiplas mensagens para observar ambos os cenários!
+- 80% de chance ? `PaymentStatus.Approved`
+- 20% de chance ? `PaymentStatus.Rejected`
 
 ## Monitoramento e Logs
 
@@ -319,26 +320,24 @@ Teste múltiplas mensagens para observar ambos os cenários!
 dotnet run
 
 # Kubernetes
-kubectl logs -l app=paymentsapi --follow
-kubectl logs <pod-name> --previous  # Para logs do container anterior
+kubectl logs -n microservices -l app=payments-api --follow
+kubectl logs -n microservices <pod-name> --previous
 ```
 
 ### Verificar Mensagens no RabbitMQ
 1. Acesse Management UI: `http://localhost:15672`
-2. Vá para **Queues** ? `payment.created`
+2. Vá para "Queues" ? `payments-order-placed`
 3. Verifique:
-   - **Messages**: Mensagens na fila
-   - **Message rates**: Taxa de processamento
-   - **Consumers**: Deve mostrar 1 consumer ativo
+   - Messages
+   - Message rates
+   - Consumers (deve mostrar 1 consumer ativo)
 
 ### Verificar Banco de Dados
 ```sql
--- Ver todos os pagamentos
 SELECT Id, OrderId, Amount, Status, CreatedAt 
 FROM Payments 
 ORDER BY CreatedAt DESC;
 
--- Estatísticas
 SELECT Status, COUNT(*) as Total 
 FROM Payments 
 GROUP BY Status;
@@ -355,14 +354,9 @@ docker tag paymentsapi:v1.0.0 paymentsapi:latest
 
 ### Kubernetes Rolling Update
 ```bash
-# Atualizar imagem no deployment
-kubectl set image deployment/paymentsapi paymentsapi=paymentsapi:v1.0.1
-
-# Verificar status do rollout
-kubectl rollout status deployment/paymentsapi
-
-# Rollback se necessário
-kubectl rollout undo deployment/paymentsapi
+kubectl -n microservices set image deployment/payments-api payments-api=payments-api:v1.0.1
+kubectl -n microservices rollout status deployment/payments-api
+kubectl -n microservices rollout undo deployment/payments-api
 ```
 
 ## Contribuindo
